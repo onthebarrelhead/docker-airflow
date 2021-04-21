@@ -14,8 +14,8 @@ ENV TERM linux
 # Airflow
 ARG AIRFLOW_VERSION=1.10.9
 ARG AIRFLOW_USER_HOME=/usr/local/airflow
-ARG AIRFLOW_DEPS=""
-ARG PYTHON_DEPS=""
+ARG AIRFLOW_DEPS="postgres,aws,mssql,ssh,slack"
+ARG PYTHON_DEPS="SQLAlchemy==1.3.15 tableauhyperapi tableauserverclient pyodbc pandas googleads"
 ENV AIRFLOW_HOME=${AIRFLOW_USER_HOME}
 
 # Define en_US.
@@ -28,6 +28,7 @@ ENV LC_MESSAGES en_US.UTF-8
 # Disable noisy "Handling signal" log messages:
 # ENV GUNICORN_CMD_ARGS --log-level WARNING
 
+# there was some bug with the SQL Server driver that required these gymnastics
 RUN set -ex \
     && buildDeps=' \
         freetds-dev \
@@ -37,6 +38,8 @@ RUN set -ex \
         libffi-dev \
         libpq-dev \
         git \
+        unixodbc-dev \
+        gnupg2 \
     ' \
     && apt-get update -yqq \
     && apt-get upgrade -yqq \
@@ -50,6 +53,9 @@ RUN set -ex \
         rsync \
         netcat \
         locales \
+    && curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
+    && echo "deb [arch=amd64] https://packages.microsoft.com/debian/10/prod buster main" >> /etc/apt/sources.list \
+    && apt-get update -yqq && ACCEPT_EULA=y apt-get install -yqq msodbcsql17 mssql-tools \
     && sed -i 's/^# en_US.UTF-8 UTF-8$/en_US.UTF-8 UTF-8/g' /etc/locale.gen \
     && locale-gen \
     && update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
@@ -62,7 +68,8 @@ RUN set -ex \
     && pip install apache-airflow[crypto,celery,postgres,hive,jdbc,mysql,ssh${AIRFLOW_DEPS:+,}${AIRFLOW_DEPS}]==${AIRFLOW_VERSION} \
     && pip install 'redis==3.2' \
     && if [ -n "${PYTHON_DEPS}" ]; then pip install ${PYTHON_DEPS}; fi \
-    && apt-get purge --auto-remove -yqq $buildDeps \
+    && (pip uninstall -y pymssql || true) && pip install Cython && pip install --no-binary pymssql pymssql \
+    && apt-get purge --auto-remove -yqq $buildDeps gnupg2 gcc libmariadb-dev \
     && apt-get autoremove -yqq --purge \
     && apt-get clean \
     && rm -rf \
